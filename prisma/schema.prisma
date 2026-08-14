@@ -1,0 +1,968 @@
+// Executive Intelligence Agent — initial canonical schema
+// Money: Decimal only. Never Float for financial amounts.
+// Isolation: tenantId on all tenant-owned rows; companyId on company-scoped facts.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum RoleCode {
+  OWNER
+  CEO
+  CFO
+  FINANCE_MANAGER
+  SALES_MANAGER
+  OPERATIONS_MANAGER
+  READ_ONLY
+}
+
+enum EnvironmentKind {
+  PRODUCTION
+  SANDBOX
+}
+
+enum SyncJobStatus {
+  QUEUED
+  RUNNING
+  SUCCEEDED
+  FAILED
+  CANCELLED
+}
+
+enum SourceMode {
+  STANDARD_API
+  CUSTOM_API
+  DEMO_SEED
+  UNAVAILABLE
+}
+
+enum ConfidenceLabel {
+  CONFIRMED_ERP
+  CALCULATED_ERP
+  INFERRED
+  SCENARIO
+  INSUFFICIENT
+}
+
+enum AlertChannel {
+  IN_APP
+  EMAIL
+  TEAMS
+  SLACK
+  WHATSAPP
+}
+
+enum MessageRole {
+  USER
+  ASSISTANT
+  SYSTEM
+}
+
+model Tenant {
+  id        String   @id @default(cuid())
+  name      String
+  slug      String   @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  memberships   Membership[]
+  connections   BusinessCentralConnection[]
+  companies     Company[]
+  conversations Conversation[]
+  analysisRuns  AnalysisRun[]
+  auditLogs     AuditLog[]
+  alerts        Alert[]
+  roles         Role[]
+  users         User[]
+  metricDefs    MetricDefinition[]
+}
+
+model User {
+  id             String    @id @default(cuid())
+  tenantId       String
+  entraObjectId  String?
+  email          String
+  displayName    String
+  locale         String    @default("en-IN")
+  timeZone       String    @default("Asia/Kolkata")
+  lastLoginAt    DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  tenant        Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  memberships   Membership[]
+  conversations Conversation[]
+  analysisRuns  AnalysisRun[]
+  auditLogs     AuditLog[]
+
+  @@unique([tenantId, email])
+  @@unique([tenantId, entraObjectId])
+  @@index([tenantId])
+}
+
+model Role {
+  id          String   @id @default(cuid())
+  tenantId    String
+  code        RoleCode
+  name        String
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  tenant       Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  memberships  Membership[]
+  permissions  RolePermission[]
+
+  @@unique([tenantId, code])
+}
+
+model Permission {
+  id          String @id @default(cuid())
+  key         String @unique
+  description String
+
+  roles RolePermission[]
+}
+
+model RolePermission {
+  roleId       String
+  permissionId String
+
+  role       Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@id([roleId, permissionId])
+}
+
+model Membership {
+  id        String   @id @default(cuid())
+  tenantId  String
+  userId    String
+  roleId    String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tenant    Tenant                 @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user      User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role      Role                   @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  companies MembershipCompany[]
+
+  @@unique([tenantId, userId])
+  @@index([tenantId, roleId])
+}
+
+model MembershipCompany {
+  membershipId String
+  companyId    String
+
+  membership Membership @relation(fields: [membershipId], references: [id], onDelete: Cascade)
+  company    Company    @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@id([membershipId, companyId])
+}
+
+model BusinessCentralConnection {
+  id                      String   @id @default(cuid())
+  tenantId                String
+  name                    String
+  entraTenantId           String?
+  bcTenantId              String?
+  encryptedAccessToken    Bytes?
+  encryptedRefreshToken   Bytes?
+  tokenExpiresAt          DateTime?
+  scope                   String?
+  createdAt               DateTime @default(now())
+  updatedAt               DateTime @updatedAt
+
+  tenant       Tenant                      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  environments BusinessCentralEnvironment[]
+
+  @@index([tenantId])
+}
+
+model BusinessCentralEnvironment {
+  id           String          @id @default(cuid())
+  tenantId     String
+  connectionId String
+  name         String
+  kind         EnvironmentKind
+  baseUrl      String
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
+
+  connection BusinessCentralConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+  companies  Company[]
+
+  @@index([tenantId, connectionId])
+}
+
+model Company {
+  id               String     @id @default(cuid())
+  tenantId         String
+  environmentId    String?
+  externalId       String?
+  name             String
+  displayName      String
+  baseCurrency     String     @default("INR")
+  fiscalCalendar   String     @default("assumed_calendar_month")
+  dataUpdatedAt    DateTime?
+  sourceMode       SourceMode @default(STANDARD_API)
+  capabilityJson   Json?
+  createdAt        DateTime   @default(now())
+  updatedAt        DateTime   @updatedAt
+
+  tenant      Tenant                     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  environment BusinessCentralEnvironment? @relation(fields: [environmentId], references: [id], onDelete: SetNull)
+  memberships MembershipCompany[]
+
+  customers              Customer[]
+  vendors                Vendor[]
+  items                  Item[]
+  glAccounts             GLAccount[]
+  glEntries              GLEntry[]
+  salesInvoices          SalesInvoice[]
+  purchaseInvoices       PurchaseInvoice[]
+  salesOrders            SalesOrder[]
+  purchaseOrders         PurchaseOrder[]
+  customerLedgerEntries  CustomerLedgerEntry[]
+  vendorLedgerEntries    VendorLedgerEntry[]
+  itemLedgerEntries      ItemLedgerEntry[]
+  valueEntries           ValueEntry[]
+  bankAccounts           BankAccount[]
+  currencies             Currency[]
+  exchangeRates          ExchangeRate[]
+  fiscalPeriods          FiscalPeriod[]
+  dimensions             Dimension[]
+  salespeople            Salesperson[]
+  budgets                Budget[]
+  accountMaps            AccountMap[]
+  syncJobs               SyncJob[]
+  syncCursors            SyncCursor[]
+  metricSnapshots        MetricSnapshot[]
+  conversations          Conversation[]
+  analysisRuns           AnalysisRun[]
+  alerts                 Alert[]
+  alertEvents            AlertEvent[]
+
+  @@unique([tenantId, environmentId, externalId])
+  @@index([tenantId])
+}
+
+model SyncJob {
+  id          String        @id @default(cuid())
+  tenantId    String
+  companyId   String
+  entity      String?
+  kind        String
+  status      SyncJobStatus
+  startedAt   DateTime?
+  finishedAt  DateTime?
+  errorCode   String?
+  errorSafe   String?
+  statsJson   Json?
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, companyId, createdAt])
+}
+
+model SyncCursor {
+  id             String    @id @default(cuid())
+  tenantId       String
+  companyId      String
+  entity         String
+  cursor         String?
+  lastSuccessAt  DateTime?
+  sourceMode     SourceMode
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, companyId, entity])
+}
+
+model FiscalPeriod {
+  id        String   @id @default(cuid())
+  tenantId  String
+  companyId String
+  name      String
+  startDate DateTime @db.Date
+  endDate   DateTime @db.Date
+  fiscalYear Int
+  closed    Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, companyId, startDate])
+}
+
+model Currency {
+  id        String   @id @default(cuid())
+  tenantId  String
+  companyId String
+  code      String
+  name      String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, companyId, code])
+}
+
+model ExchangeRate {
+  id             String   @id @default(cuid())
+  tenantId       String
+  companyId      String
+  currencyCode   String
+  startingDate   DateTime @db.Date
+  rateAmount     Decimal  @db.Decimal(19, 8)
+  relationalAmount Decimal? @db.Decimal(19, 8)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, companyId, currencyCode, startingDate])
+}
+
+model Dimension {
+  id         String   @id @default(cuid())
+  tenantId   String
+  companyId  String
+  externalId String?
+  code       String
+  name       String
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  company Company          @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  values  DimensionValue[]
+
+  @@unique([tenantId, companyId, code])
+}
+
+model DimensionValue {
+  id          String @id @default(cuid())
+  tenantId    String
+  dimensionId String
+  code        String
+  name        String
+
+  dimension Dimension @relation(fields: [dimensionId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, dimensionId, code])
+}
+
+model Salesperson {
+  id         String  @id @default(cuid())
+  tenantId   String
+  companyId  String
+  externalId String?
+  code       String
+  name       String
+
+  company   Company    @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  customers Customer[]
+
+  @@unique([tenantId, companyId, code])
+}
+
+model Customer {
+  id              String   @id @default(cuid())
+  tenantId        String
+  companyId       String
+  externalId      String?
+  number          String
+  displayName     String
+  blocked         Boolean  @default(false)
+  currencyCode    String?
+  creditLimitLcy  Decimal? @db.Decimal(19, 4)
+  salespersonId   String?
+  extras          Json?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  company      Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  salesperson  Salesperson?  @relation(fields: [salespersonId], references: [id])
+  invoices     SalesInvoice[]
+  ledger       CustomerLedgerEntry[]
+  orders       SalesOrder[]
+
+  @@unique([tenantId, companyId, number])
+  @@index([tenantId, companyId, displayName])
+}
+
+model Vendor {
+  id           String   @id @default(cuid())
+  tenantId     String
+  companyId    String
+  externalId   String?
+  number       String
+  displayName  String
+  blocked      Boolean  @default(false)
+  currencyCode String?
+  extras       Json?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  company  Company                 @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  invoices PurchaseInvoice[]
+  ledger   VendorLedgerEntry[]
+  orders   PurchaseOrder[]
+
+  @@unique([tenantId, companyId, number])
+}
+
+model Item {
+  id            String   @id @default(cuid())
+  tenantId      String
+  companyId     String
+  externalId    String?
+  number        String
+  displayName   String
+  itemType      String?
+  category      String?
+  unitCost      Decimal? @db.Decimal(19, 4)
+  extras        Json?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  salesLines SalesInvoiceLine[]
+  purchaseLines PurchaseInvoiceLine[]
+  itemLedger ItemLedgerEntry[]
+  valueEntries ValueEntry[]
+
+  @@unique([tenantId, companyId, number])
+}
+
+model GLAccount {
+  id           String   @id @default(cuid())
+  tenantId     String
+  companyId    String
+  externalId   String?
+  number       String
+  name         String
+  category     String?
+  subcategory  String?
+  incomeBalance String?
+  indented     Int      @default(0)
+  sensitivity  String   @default("standard")
+  extras       Json?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  company Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  entries GLEntry[]
+  maps    AccountMap[]
+
+  @@unique([tenantId, companyId, number])
+}
+
+model AccountMap {
+  id           String @id @default(cuid())
+  tenantId     String
+  companyId    String
+  glAccountId  String
+  statement    String
+  lineKey      String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  company   Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  glAccount GLAccount @relation(fields: [glAccountId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, companyId, glAccountId, statement])
+}
+
+model GLEntry {
+  id            String   @id @default(cuid())
+  tenantId      String
+  companyId     String
+  externalId    String?
+  entryNumber   Int?
+  glAccountId   String?
+  postingDate   DateTime @db.Date
+  documentType  String?
+  documentNumber String?
+  description   String?
+  amountLcy     Decimal  @db.Decimal(19, 4)
+  debitLcy      Decimal? @db.Decimal(19, 4)
+  creditLcy     Decimal? @db.Decimal(19, 4)
+  extras        Json?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  company   Company    @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  glAccount GLAccount? @relation(fields: [glAccountId], references: [id])
+
+  @@unique([tenantId, companyId, externalId])
+  @@index([tenantId, companyId, postingDate])
+  @@index([tenantId, companyId, glAccountId, postingDate])
+}
+
+model SalesInvoice {
+  id              String    @id @default(cuid())
+  tenantId        String
+  companyId       String
+  externalId      String?
+  number          String
+  customerId      String?
+  postingDate     DateTime  @db.Date
+  documentDate    DateTime? @db.Date
+  dueDate         DateTime? @db.Date
+  currencyCode    String?
+  amount          Decimal   @db.Decimal(19, 4)
+  amountLcy       Decimal   @db.Decimal(19, 4)
+  amountIncludingTaxLcy Decimal? @db.Decimal(19, 4)
+  status          String?
+  extras          Json?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  company  Company             @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  customer Customer?           @relation(fields: [customerId], references: [id])
+  lines    SalesInvoiceLine[]
+
+  @@unique([tenantId, companyId, number])
+  @@index([tenantId, companyId, postingDate])
+  @@index([tenantId, companyId, customerId, postingDate])
+}
+
+model SalesInvoiceLine {
+  id            String   @id @default(cuid())
+  tenantId      String
+  companyId     String
+  invoiceId     String
+  externalId    String?
+  lineNumber    Int?
+  itemId        String?
+  description   String?
+  quantity      Decimal  @db.Decimal(19, 4)
+  unitPrice     Decimal? @db.Decimal(19, 4)
+  discountAmount Decimal? @db.Decimal(19, 4)
+  amount        Decimal  @db.Decimal(19, 4)
+  amountLcy     Decimal  @db.Decimal(19, 4)
+  extras        Json?
+
+  invoice SalesInvoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  item    Item?        @relation(fields: [itemId], references: [id])
+
+  @@index([tenantId, companyId, invoiceId])
+  @@index([tenantId, itemId])
+}
+
+model PurchaseInvoice {
+  id           String    @id @default(cuid())
+  tenantId     String
+  companyId    String
+  externalId   String?
+  number       String
+  vendorId     String?
+  postingDate  DateTime  @db.Date
+  documentDate DateTime? @db.Date
+  dueDate      DateTime? @db.Date
+  currencyCode String?
+  amount       Decimal   @db.Decimal(19, 4)
+  amountLcy    Decimal   @db.Decimal(19, 4)
+  extras       Json?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  company Company               @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  vendor  Vendor?               @relation(fields: [vendorId], references: [id])
+  lines   PurchaseInvoiceLine[]
+
+  @@unique([tenantId, companyId, number])
+  @@index([tenantId, companyId, postingDate])
+}
+
+model PurchaseInvoiceLine {
+  id         String  @id @default(cuid())
+  tenantId   String
+  companyId  String
+  invoiceId  String
+  externalId String?
+  lineNumber Int?
+  itemId     String?
+  description String?
+  quantity   Decimal @db.Decimal(19, 4)
+  amount     Decimal @db.Decimal(19, 4)
+  amountLcy  Decimal @db.Decimal(19, 4)
+  extras     Json?
+
+  invoice PurchaseInvoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  item    Item?           @relation(fields: [itemId], references: [id])
+
+  @@index([tenantId, companyId, invoiceId])
+}
+
+model SalesOrder {
+  id          String   @id @default(cuid())
+  tenantId    String
+  companyId   String
+  externalId  String?
+  number      String
+  customerId  String?
+  orderDate   DateTime? @db.Date
+  status      String?
+  amountLcy   Decimal   @db.Decimal(19, 4)
+  extras      Json?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  company  Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  customer Customer? @relation(fields: [customerId], references: [id])
+
+  @@unique([tenantId, companyId, number])
+}
+
+model PurchaseOrder {
+  id          String   @id @default(cuid())
+  tenantId    String
+  companyId   String
+  externalId  String?
+  number      String
+  vendorId    String?
+  orderDate   DateTime? @db.Date
+  status      String?
+  amountLcy   Decimal   @db.Decimal(19, 4)
+  extras      Json?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  vendor  Vendor? @relation(fields: [vendorId], references: [id])
+
+  @@unique([tenantId, companyId, number])
+}
+
+model CustomerLedgerEntry {
+  id              String    @id @default(cuid())
+  tenantId        String
+  companyId       String
+  externalId      String?
+  entryNumber     Int?
+  customerId      String?
+  postingDate     DateTime  @db.Date
+  documentDate    DateTime? @db.Date
+  dueDate         DateTime? @db.Date
+  documentType    String?
+  documentNumber  String?
+  amountLcy       Decimal   @db.Decimal(19, 4)
+  remainingLcy    Decimal   @db.Decimal(19, 4)
+  open            Boolean   @default(true)
+  sourceMode      SourceMode @default(STANDARD_API)
+  extras          Json?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  company  Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  customer Customer? @relation(fields: [customerId], references: [id])
+
+  @@index([tenantId, companyId, dueDate])
+  @@index([tenantId, companyId, customerId, open])
+  @@index([tenantId, companyId, postingDate])
+}
+
+model VendorLedgerEntry {
+  id             String     @id @default(cuid())
+  tenantId       String
+  companyId      String
+  externalId     String?
+  entryNumber    Int?
+  vendorId       String?
+  postingDate    DateTime   @db.Date
+  dueDate        DateTime?  @db.Date
+  documentType   String?
+  documentNumber String?
+  amountLcy      Decimal    @db.Decimal(19, 4)
+  remainingLcy   Decimal    @db.Decimal(19, 4)
+  open           Boolean    @default(true)
+  sourceMode     SourceMode @default(STANDARD_API)
+  extras         Json?
+  createdAt      DateTime   @default(now())
+  updatedAt      DateTime   @updatedAt
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  vendor  Vendor? @relation(fields: [vendorId], references: [id])
+
+  @@index([tenantId, companyId, vendorId, open])
+  @@index([tenantId, companyId, postingDate])
+}
+
+model ItemLedgerEntry {
+  id            String    @id @default(cuid())
+  tenantId      String
+  companyId     String
+  externalId    String?
+  entryNumber   Int?
+  itemId        String?
+  postingDate   DateTime  @db.Date
+  entryType     String?
+  quantity      Decimal   @db.Decimal(19, 4)
+  remainingQty  Decimal?  @db.Decimal(19, 4)
+  sourceMode    SourceMode @default(STANDARD_API)
+  extras        Json?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  item    Item?   @relation(fields: [itemId], references: [id])
+
+  @@index([tenantId, companyId, itemId, postingDate])
+}
+
+model ValueEntry {
+  id           String     @id @default(cuid())
+  tenantId     String
+  companyId    String
+  externalId   String?
+  entryNumber  Int?
+  itemId       String?
+  postingDate  DateTime   @db.Date
+  itemLedgerType String?
+  costAmountLcy Decimal   @db.Decimal(19, 4)
+  salesAmountLcy Decimal? @db.Decimal(19, 4)
+  invoicedQty  Decimal?   @db.Decimal(19, 4)
+  sourceMode   SourceMode @default(STANDARD_API)
+  extras       Json?
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  item    Item?   @relation(fields: [itemId], references: [id])
+
+  @@index([tenantId, companyId, postingDate])
+  @@index([tenantId, companyId, itemId, postingDate])
+}
+
+model BankAccount {
+  id             String   @id @default(cuid())
+  tenantId       String
+  companyId      String
+  externalId     String?
+  number         String
+  name           String
+  currencyCode   String?
+  balanceLcy     Decimal  @db.Decimal(19, 4)
+  extras         Json?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, companyId, number])
+}
+
+model Budget {
+  id         String   @id @default(cuid())
+  tenantId   String
+  companyId  String
+  name       String
+  periodStart DateTime @db.Date
+  periodEnd  DateTime @db.Date
+  amountLcy  Decimal  @db.Decimal(19, 4)
+  glAccountNumber String?
+  extras     Json?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, companyId, periodStart])
+}
+
+model MetricDefinition {
+  id             String   @id @default(cuid())
+  tenantId       String?
+  metricId       String
+  name           String
+  description    String
+  formula        String
+  version        String   @default("v1")
+  requiredData   Json
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  tenant    Tenant?          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  snapshots MetricSnapshot[]
+
+  @@unique([tenantId, metricId, version])
+}
+
+model MetricSnapshot {
+  id               String   @id @default(cuid())
+  tenantId         String
+  companyId        String
+  metricDefinitionId String?
+  metricId         String
+  periodStart      DateTime @db.Date
+  periodEnd        DateTime @db.Date
+  asOf             DateTime? @db.Date
+  value            Decimal? @db.Decimal(19, 4)
+  currencyCode     String
+  confidence       ConfidenceLabel
+  calculationBasis String?
+  syncVersion      String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  company    Company            @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  definition MetricDefinition?  @relation(fields: [metricDefinitionId], references: [id])
+
+  @@index([tenantId, companyId, metricId, periodEnd])
+}
+
+model Conversation {
+  id        String   @id @default(cuid())
+  tenantId  String
+  companyId String
+  userId    String
+  title     String?
+  stateJson Json?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tenant   Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  company  Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  messages Message[]
+  runs     AnalysisRun[]
+
+  @@index([tenantId, userId, updatedAt])
+}
+
+model Message {
+  id             String      @id @default(cuid())
+  tenantId       String
+  conversationId String
+  role           MessageRole
+  content        String
+  createdAt      DateTime    @default(now())
+
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  run          AnalysisRun?
+
+  @@index([tenantId, conversationId, createdAt])
+}
+
+model AnalysisRun {
+  id              String   @id @default(cuid())
+  tenantId        String
+  companyId       String
+  userId          String
+  conversationId  String?
+  messageId       String?  @unique
+  requestId       String
+  question        String
+  intent          String?
+  selectedAgent   String?
+  metricsUsed     Json?
+  dataSourcesUsed Json?
+  planJson        Json?
+  toolTraceJson   Json?
+  model           String?
+  promptVersion   String?
+  finalResponse   String?
+  confidence      ConfidenceLabel?
+  errors          Json?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  tenant       Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  company      Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  conversation Conversation? @relation(fields: [conversationId], references: [id])
+  message      Message?      @relation(fields: [messageId], references: [id])
+  evidence     Evidence[]
+
+  @@index([tenantId, companyId, createdAt])
+  @@index([requestId])
+}
+
+model Evidence {
+  id               String   @id @default(cuid())
+  tenantId         String
+  analysisRunId    String
+  claim            String
+  metricId         String?
+  periodStart      DateTime? @db.Date
+  periodEnd        DateTime? @db.Date
+  currentValue     Decimal? @db.Decimal(19, 4)
+  previousValue    Decimal? @db.Decimal(19, 4)
+  difference       Decimal? @db.Decimal(19, 4)
+  currencyCode     String?
+  filtersJson      Json?
+  sourcesJson      Json?
+  calculationNotes String?
+  confidence       ConfidenceLabel
+  createdAt        DateTime @default(now())
+
+  analysisRun AnalysisRun @relation(fields: [analysisRunId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, analysisRunId])
+}
+
+model Alert {
+  id          String       @id @default(cuid())
+  tenantId    String
+  companyId   String
+  name        String
+  metricId    String
+  operator    String
+  threshold   Decimal      @db.Decimal(19, 4)
+  channel     AlertChannel @default(IN_APP)
+  enabled     Boolean      @default(true)
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  tenant  Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  company Company      @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  events  AlertEvent[]
+
+  @@index([tenantId, companyId, enabled])
+}
+
+model AlertEvent {
+  id        String   @id @default(cuid())
+  tenantId  String
+  companyId String
+  alertId   String
+  firedAt   DateTime @default(now())
+  value     Decimal  @db.Decimal(19, 4)
+  message   String
+  readAt    DateTime?
+
+  alert   Alert   @relation(fields: [alertId], references: [id], onDelete: Cascade)
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, companyId, firedAt])
+}
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  tenantId   String
+  userId     String?
+  action     String
+  entityType String?
+  entityId   String?
+  metadata   Json?
+  createdAt  DateTime @default(now())
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user   User?  @relation(fields: [userId], references: [id])
+
+  @@index([tenantId, createdAt])
+}

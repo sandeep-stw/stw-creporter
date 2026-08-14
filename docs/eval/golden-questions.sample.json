@@ -1,0 +1,12 @@
+{
+  "version": "0.1.0",
+  "description": "Golden executive questions for AI evaluation. Expected metrics must be selected by the planner. Implement graders in Phase 4.",
+  "questions": [
+    { "id": "Q01", "question": "How are we doing this month?", "intent": "EXECUTIVE_SUMMARY", "expectedMetrics": ["revenue", "gross_profit", "gross_margin", "cash_balance", "accounts_receivable", "accounts_payable", "inventory_value"], "forbiddenClaims": ["bankruptcy", "fraud"] },
+    { "id": "Q02", "question": "What were sales last month?", "intent": "DESCRIPTIVE", "expectedMetrics": ["revenue"] },
+    { "id": "Q10", "question": "How much cash do we have?", "intent": "LOOKUP", "expectedMetrics": ["cash_balance"] },
+    { "id": "Q11", "question": "Why is my cash balance decreasing even though sales are growing?", "intent": "DIAGNOSTIC", "expectedMetrics": ["cash_balance", "revenue", "accounts_receivable", "inventory_value", "accounts_payable"] },
+    { "id": "Q15", "question": "How much do customers owe us?", "intent": "LOOKUP", "expectedMetrics": ["accounts_receivable"] },
+    { "id": "Q18", "question": "Which overdue customers should my team call first?", "intent": "PRESCRIPTIVE", "expectedMetrics": ["overdue_receivables"] }
+  ]
+}
