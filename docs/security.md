@@ -65,6 +65,16 @@ Denied data is an authorization error, not a zero.
 - BC: OAuth 2.0 confidential client; tokens in encrypted columns or secret store; never in browser.
 - Future: other OIDC providers without changing tenant model.
 
+Entra registration (BCM-010) is documented in [entra-app.md](./entra-app.md). Required least-privilege scopes:
+
+| API | Type | Permission |
+| --- | --- | --- |
+| Microsoft Graph | Delegated | `openid`, `profile`, `email`, `offline_access`, `User.Read` |
+| Dynamics 365 Business Central | Delegated | `Financials.ReadWrite.All` |
+| Dynamics 365 Business Central | Application | `API.ReadWrite.All`, `Automation.ReadWrite.All` |
+
+Do not assign the Business Central `SUPER` permission set to the Entra application. Use `D365 AUTOMATION` plus a financial read set such as `D365 BUS FULL ACCESS`, then tighten per customer.
+
 ---
 
 ## 5. Encryption

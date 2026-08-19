@@ -21,6 +21,7 @@ This pack is the source of truth for design before implementation. Application c
 | 5 | [metrics.md](./metrics.md) | MVP metric catalogue |
 | 6 | [ai-system.md](./ai-system.md) | Orchestration, tools, anti-hallucination |
 | 7 | [security.md](./security.md) | Security, RBAC, audit, isolation |
+| 7b | [entra-app.md](./entra-app.md) | Entra app registration (BCM-010) |
 | 8 | [ux.md](./ux.md) | Screens, briefing-first UI |
 | 9 | [mvp-backlog.md](./mvp-backlog.md) | Backlog items with acceptance criteria |
 | 10 | [roadmap.md](./roadmap.md) | Phases, epics, sequential task list |
