@@ -42,6 +42,25 @@ pwsh -File scripts/Register-EntraApp.ps1 -GrantAdminConsent
 
 Config tests: `python3 tests/entra_app_config_test.py`
 
+## OAuth token (BCM-011)
+
+After `.env` has real `BC_TENANT_ID`, `BC_CLIENT_ID`, and `BC_CLIENT_SECRET`:
+
+```powershell
+pwsh -File scripts/Get-BCAccessToken.ps1
+```
+
+Dot-source from other scripts:
+
+```powershell
+. ./scripts/Get-BCAccessToken.ps1
+$token = Get-BCAccessToken
+```
+
+The script never writes the token to disk and redacts secrets in error messages.
+
+Token tests (no live tenant): `python3 tests/get_bc_access_token_test.py`
+
 ## Next implementation step
 
 Follow **Phase 1, Task 1.1** in [docs/roadmap.md](./docs/roadmap.md): scaffold Next.js, TypeScript, and the domain folder structure. Do not skip metric tests when analytics work begins.

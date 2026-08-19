@@ -129,6 +129,19 @@ pwsh -File scripts/Register-EntraApp.ps1 -GrantAdminConsent
 
 Re-runs update permissions and do not rotate the secret unless you pass `-RotateSecret`.
 
+## Verify token (BCM-011)
+
+```powershell
+pwsh -File scripts/Get-BCAccessToken.ps1
+```
+
+A non-empty access token means Entra app registration, secret, and admin consent are working. Business Central object permissions are confirmed when company/API calls succeed.
+
+```powershell
+. ./scripts/Get-BCAccessToken.ps1
+$token = Get-BCAccessToken
+```
+
 ## References
 
 - [Register an Entra app](https://learn.microsoft.com/en-us/entra/identity-platform/quickstart-register-app)
