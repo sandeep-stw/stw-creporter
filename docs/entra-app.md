@@ -45,18 +45,54 @@ Resource app ID (Dynamics 365 Business Central): `996def3d-b36c-4153-8607-a6fd3c
 
 ## 4. Assign required Business Central permissions
 
-Entra API permissions are not enough for S2S. In each Business Central environment:
+This step is **inside Business Central**, not Entra. Entra only issues tokens. BC still needs a Microsoft Entra Applications card with permission sets. Repeat in **each** environment (sandbox and production are separate).
 
-1. Search **Microsoft Entra Applications**.
-2. **New** → **Client ID** = Application (client) ID.
-3. Description: `Executive Intelligence Agent`.
-4. **State** = **Enabled**.
-5. Assign permission sets (**not** `SUPER`):
-   - `D365 AUTOMATION`
-   - `D365 BUS FULL ACCESS` (read financials for metrics; tighten per customer later)
-6. If admin consent was not granted in Entra, use **Grant Consent** on the card (needs the BC redirect URI above).
+### Prerequisites
 
-For delegated onboarding, the owner signs in and consents `Financials.ReadWrite.All`; tokens stay on the server (MVP-008).
+- Application (client) ID from Entra (`BC_CLIENT_ID`)
+- A BC user who can open **Microsoft Entra Applications** (typically SUPER or SECURITY for this one-time setup)
+- Redirect URI `https://businesscentral.dynamics.com/OAuthLanding.htm` on the Entra app if you will use **Grant Consent** from BC
+
+### Enable the app
+
+1. Sign in to Business Central in the target environment.
+2. **Tell me** (Alt+Q) → **Microsoft Entra Applications**.
+3. **New**.
+4. **Client ID**: paste the Entra Application (client) ID (GUID).
+5. **Description**: `Executive Intelligence Agent`.
+6. Confirm when BC asks to create an application user.
+7. Set **State** to **Enabled**.
+
+### Assign permission sets (not SUPER)
+
+1. On the same card, open **User Permission Sets** (related action / FastTab).
+2. Add only:
+   - `D365 AUTOMATION` — automation APIs
+   - `D365 BUS FULL ACCESS` — customers, invoices, G/L, banks, and other financial APIs used by sync
+3. Do **not** add `SUPER`. Business Central rejects SUPER on Entra application users.
+
+You can replace `D365 BUS FULL ACCESS` later with a custom set limited to the API pages this product syncs.
+
+### Grant consent (if not already done in Entra)
+
+On the Microsoft Entra Applications card, choose **Grant Consent**. Sign in as an Entra admin for that customer tenant.
+
+### Confirm
+
+| Check | Expected |
+| --- | --- |
+| State | Enabled |
+| Application user | Created from the Client ID |
+| Permission sets | `D365 AUTOMATION` and `D365 BUS FULL ACCESS` only — no SUPER |
+| API | Companies (or another v2.0) call succeeds with a client-credentials token |
+
+### Typical failures
+
+- Valid token, **Access Denied** on APIs: card missing, not Enabled, or permission sets not assigned in this environment.
+- **Grant Consent** fails: Entra redirect URI is not `https://businesscentral.dynamics.com/OAuthLanding.htm`, or the user is not an Entra admin.
+- Works in sandbox but not production: the card was only created in one environment.
+
+For delegated owner onboarding, the user consents `Financials.ReadWrite.All`; refresh tokens stay on the server (MVP-008).
 
 ## 5. Wire local environment
 
